@@ -58,15 +58,25 @@ if __name__ == "__main__":
                 ul.c_config_scan(device_info.board_num,c,ENUMS.CounterMode.GATING_ON,
                                  ENUMS.CounterDebounceTime.DEBOUNCE_NONE,ENUMS.CounterDebounceMode.TRIGGER_AFTER_STABLE,
                                  ENUMS.CounterEdgeDetection.RISING_EDGE,counter_tick_exp,c)
-                # add in output control for hardware controls
-                # ul.c_config_scan(device_info.board_num,c,ENUMS.CounterMode.OUTPUT_ON,
-                #                  ENUMS.CounterDebounceTime.DEBOUNCE_NONE,ENUMS.CounterDebounceMode.TRIGGER_AFTER_STABLE,
-                #                  ENUMS.CounterEdgeDetection.RISING_EDGE,counter_tick_exp,c)   
                                                
         # if counters are not supported
         else:
             print('ERROR: No counter channels on DAQs detected')
             quit()
+
+        # next check if digital IO is supported
+        if device_info.supports_digital_io:
+            # TODO: eventually probably remove hte FOR loop if there is only 1 port and no way to index more than 1 port. 
+            for p in range(0,device_info._dio_info.num_ports):
+                # configure the port for output (this will be used to signal external hardware as needed of an event)
+                # NOTE: CTR-08 boards (at least) only have 1 DIO port and cannot index more than 1 port w/ below function, so this is hardcoded unintentionally
+                ul.d_config_port(device_info.board_num, ENUMS.DigitalPortType.AUXPORT, ENUMS.DigitalIODirection.OUT)
+                # initialize the port low (not sure if needed)
+                ul.d_out_32(device_info.board_num, ENUMS.DigitalPortType.AUXPORT, 0)
+        
+        else:
+            print('WARNIGN: Digital IO is not supported on this board')
+            pass
 
     try:
         # create the full file name and write the header 
@@ -101,7 +111,7 @@ if __name__ == "__main__":
                 ul.c_clear(device_info.board_num, counter_num)
 
         data_max_list = list()  # container for the max signal seen per channel in session
-        data_max_list = [0,0,0,0,0,0,0,0]   # TODO: make this better/smarter should be zeros(0,8) or 0*[0:8] basically
+        data_max_list = [0 for i in range(0,max_counter_channels)]   # TODO: make this better/smarter should be zeros(0,8) or 0*[0:8] basically, but don't want to import numpy
 
         # measure loop time
         loop_start = time.time()
@@ -111,13 +121,9 @@ if __name__ == "__main__":
             # give user an out
             print('\nPress Ctrl+C to exit loop')
 
-            # measure loop time
+            # measure and print loop time
             loop_end = time.time()
-
-            # print loop time
             print('Loop time is ' + str(loop_end-loop_start))
-
-            # measure loop time
             loop_start = time.time()
 
             data_list = list()  # container for data from channel data
@@ -133,11 +139,16 @@ if __name__ == "__main__":
                     pulse_width_us = round(pulse_width/1E-6,1)
                     data_list.append(pulse_width_us)
 
+                    # this is just for presentation, this data isn't logged (as of this writing)
                     if pulse_width_us > data_max_list[counter_num]:
                         data_max_list[counter_num] = pulse_width_us
 
                     # determine the range of the tick, ie greater than 1, 1:10, 10:100, beyond 100?
                     if pulse_width_us >= 1:
+                        # send a trigger on the DIO port that there was an event on the counter number in question
+                        ul.d_bit_out(board, ENUMS.DigitalPortType.AUXPORT, counter_num, 1)
+
+                        # issue some text notes for when a pulse falls within specific lengths
                         if (pulse_width_us >= 1) & (pulse_width_us < 10):
                             print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 1 us event' + 
                                   ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + str(data_max_list[counter_num]))
@@ -145,14 +156,16 @@ if __name__ == "__main__":
                             print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 10 us event' +
                                    ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + str(data_max_list[counter_num]))
                         if (pulse_width_us >= 100):
-                            # TODO: need a way to distinguish whether there is no signal or the event is jsut greater than 100 us
                             print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 100 us event' +
                                 ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + str(data_max_list[counter_num]))
 
                         # clear the results after every loop, values will be stored in data_list_max and also logged
                         ul.c_clear(device_info.board_num, counter_num)
 
+                    # TODO: IMPORTANT: need a way to distinguish if a line is shorted, i.e. if the pulse_width is close to the loop time
+
                     else:
+                        # no event was detected
                         print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
                               ', no event detected, Max Value recorded is ' + str(data_max_list[counter_num]))
 
@@ -163,7 +176,6 @@ if __name__ == "__main__":
 
             # clear the terminal screen for some formatting
             os.system('cls' if os.name == 'nt' else 'clear')
-            # TODO: add in logging of non events every time step as well as events (above)
 
     except KeyboardInterrupt:
         print('EXIT: Keyboard Interrupt')
