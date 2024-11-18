@@ -21,7 +21,7 @@ global max_counter_channels
 global counter_tick_exp
 global counter_tick
 global update_rate
-update_rate = 3   # how fast the terminal refreshes, in seconds
+update_rate = 1   # how fast the terminal refreshes, in seconds
 
 #
 # TODO: break the below into functions when ready to add in GUI elements
@@ -58,13 +58,16 @@ if __name__ == "__main__":
                 ul.c_config_scan(device_info.board_num,c,ENUMS.CounterMode.GATING_ON,
                                  ENUMS.CounterDebounceTime.DEBOUNCE_NONE,ENUMS.CounterDebounceMode.TRIGGER_AFTER_STABLE,
                                  ENUMS.CounterEdgeDetection.RISING_EDGE,counter_tick_exp,c)
-                                  
+                # add in output control for hardware controls
+                # ul.c_config_scan(device_info.board_num,c,ENUMS.CounterMode.OUTPUT_ON,
+                #                  ENUMS.CounterDebounceTime.DEBOUNCE_NONE,ENUMS.CounterDebounceMode.TRIGGER_AFTER_STABLE,
+                #                  ENUMS.CounterEdgeDetection.RISING_EDGE,counter_tick_exp,c)   
+                                               
         # if counters are not supported
         else:
             print('ERROR: No counter channels on DAQs detected')
             quit()
 
-    #TODO: add the asynchronous or threaded reads here (fun)
     try:
         # create the full file name and write the header 
         # TODO: add in time and date stamps to filename
@@ -91,10 +94,31 @@ if __name__ == "__main__":
                           ['B'+str(b)+',C'+str(c) for b in range(0,len(daqs_discovered)) for c in range(0,max_counter_channels)])
         df.to_csv(full_filename, index=False, columns=df.columns, mode='a')
         
+        # clear data from the last run of the counters on all boards
+        for board in range(0,len(daqs_discovered)):
+            device_info = DaqDeviceInfo(board)
+            for counter_num in range(0,max_counter_channels):
+                ul.c_clear(device_info.board_num, counter_num)
+
+        data_max_list = list()  # container for the max signal seen per channel in session
+        data_max_list = [0,0,0,0,0,0,0,0]   # TODO: make this better/smarter should be zeros(0,8) or 0*[0:8] basically
+
+        # measure loop time
+        loop_start = time.time()
+
         # now egin looping for data capture
         while True:
             # give user an out
             print('\nPress Ctrl+C to exit loop')
+
+            # measure loop time
+            loop_end = time.time()
+
+            # print loop time
+            print('Loop time is ' + str(loop_end-loop_start))
+
+            # measure loop time
+            loop_start = time.time()
 
             data_list = list()  # container for data from channel data
             # loop over number of boards
@@ -109,25 +133,32 @@ if __name__ == "__main__":
                     pulse_width_us = round(pulse_width/1E-6,1)
                     data_list.append(pulse_width_us)
 
+                    if pulse_width_us > data_max_list[counter_num]:
+                        data_max_list[counter_num] = pulse_width_us
+
                     # determine the range of the tick, ie greater than 1, 1:10, 10:100, beyond 100?
                     if pulse_width_us >= 1:
                         if (pulse_width_us >= 1) & (pulse_width_us < 10):
-                            # TODO: add in event logging
-                            print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 1 us event' + ' of ' + str(pulse_width_us) + ' us')
+                            print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 1 us event' + 
+                                  ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + str(data_max_list[counter_num]))
                         if (pulse_width_us >= 10) & (pulse_width_us < 100):
-                            print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 10 us event' + ' of ' + str(pulse_width_us) + ' us')
+                            print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 10 us event' +
+                                   ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + str(data_max_list[counter_num]))
                         if (pulse_width_us >= 100):
                             # TODO: need a way to distinguish whether there is no signal or the event is jsut greater than 100 us
-                            print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 100 us event' + ' of ' + str(pulse_width_us) + ' us')
-                        # NOTE: this function doesn't appear to work as it seems like it should
+                            print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 100 us event' +
+                                ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + str(data_max_list[counter_num]))
+
+                        # clear the results after every loop, values will be stored in data_list_max and also logged
                         ul.c_clear(device_info.board_num, counter_num)
 
                     else:
-                        print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', no event detected')
-            
-            # append the data to the df
+                        print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
+                              ', no event detected, Max Value recorded is ' + str(data_max_list[counter_num]))
+
+            # write the data to the csv using pandas df
             pd.DataFrame([str(pd.to_datetime(dt.datetime.now()))] + data_list).T.to_csv(full_filename, header=False, index=False, mode='a')
-            # loop print ~once a second
+            # pause for amount of time in seconds
             time.sleep(update_rate)
 
             # clear the terminal screen for some formatting
