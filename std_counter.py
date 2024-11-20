@@ -2,6 +2,7 @@
 # Requires an external clock fed into the input, and the sample wire to be fed into the gate, which counts clock pulses 
 # Next step is to add file logging capabilities for events with timestamps ###
 
+# all the imports from teh Universal library
 from __future__ import absolute_import, division, print_function
 from builtins import *  # @UnusedWildImport
 
@@ -12,22 +13,78 @@ from mcculw.ul import ULError
 
 from mcculw.device_info import DaqDeviceInfo
 
+# python system type imports
 import time
 import datetime as dt
 import os
 import pandas as pd
 
+# GUI related imports
+import tkinter as tk
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+# some globals
 global max_counter_channels
 global counter_tick_exp
 global counter_tick
 global update_rate
-update_rate = 1   # how fast the terminal refreshes, in seconds
+update_rate = 2   # how fast the terminal refreshes, in seconds
 
 #
 # TODO: break the below into functions when ready to add in GUI elements
 #
 
+# to be used later, Tkinter stripchart
+def update_plot(t,v):
+    ax.plot(t, [v])
+    ax.legend(df.columns[1:])
+    canvas.draw()
+    #plt.show(block=False)
+
+# stripchart class
+class StripChart:
+    def __init__(self, master, title="Strip Chart", xlabel="Time", ylabel="Value"):
+        self.master = master
+        self.master.title(title)
+
+        self.fig, self.ax = plt.subplots()
+        self.ax.set_xlabel(xlabel)
+        self.ax.set_ylabel(ylabel)
+
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.master)
+        self.canvas.draw()
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        self.x_data = []
+        self.y_data = []
+
+    def update_chart(self, x, y):
+        self.x_data.append(x)
+        self.y_data.append(y)
+
+        self.ax.clear()
+        self.ax.plot(self.x_data, self.y_data)
+        self.ax.legend(df.columns[1:])
+        self.ax.set_xlabel('Time')
+        self.ax.set_ylabel('Discontinuity Detected (us)')
+        self.ax.set_title('Discontinuity Detected Over Time for all Boards and Channels')
+        self.canvas.draw()
+
 if __name__ == "__main__":
+    # create the main GUI named root
+    root = tk.Tk()
+    root.title("Discontinuity Detector GUI Stripchart")
+    root.geometry('1050x750')
+    root.configure(bg='gray')
+    root.lift()
+
+    # initialize the canvas/stripchart graph
+    chart = StripChart(root)
+
+    # runInitialize()
+
+    ### TODO: break this into functions of Initialize, Run, Event?
     # start by discovering which DAQ are on the USB bus
     # tell the daq to ignore instacal settings
     ul.ignore_instacal()
@@ -93,12 +150,14 @@ if __name__ == "__main__":
             quit()
         else:
             board_names = [(daqs_discovered[b].product_name + ' ' + daqs_discovered[b].unique_id) for b in range(0,len(daqs_discovered))]
+
             test_header = f"""Begin logging at {dt.datetime.now()}\n
             Num. Boards is {len(daqs_discovered)} - {' ID: '.join(board_names[n] for n in range(0,len(board_names)))}\n
             \n"""
             file.write(test_header)
             file.close()
 
+        global df   # need access to clumn names for plotting
         # start logging using dataframe
         df = pd.DataFrame(columns=['Time'] + 
                           ['B'+str(b)+',C'+str(c) for b in range(0,len(daqs_discovered)) for c in range(0,max_counter_channels)])
@@ -111,7 +170,7 @@ if __name__ == "__main__":
                 ul.c_clear(device_info.board_num, counter_num)
 
         data_max_list = list()  # container for the max signal seen per channel in session
-        data_max_list = [0 for i in range(0,max_counter_channels)]   # TODO: make this better/smarter should be zeros(0,8) or 0*[0:8] basically, but don't want to import numpy
+        data_max_list = [0 for i in range(0,max_counter_channels)] 
 
         # measure loop time
         loop_start = time.time()
@@ -173,6 +232,12 @@ if __name__ == "__main__":
             pd.DataFrame([str(pd.to_datetime(dt.datetime.now()))] + data_list).T.to_csv(full_filename, header=False, index=False, mode='a')
             # pause for amount of time in seconds
             time.sleep(update_rate)
+            
+            # display the latest data on the trace
+            #root.after(0,update_plot(dt.datetime.now(),[data_list[i] for i in range(0,len(data_list))]))
+            chart.update_chart(dt.datetime.now(),[data_list[i] for i in range(0,len(data_list))])
+            root.update()
+            #root.mainloop()
 
             # clear the terminal screen for some formatting
             os.system('cls' if os.name == 'nt' else 'clear')
@@ -181,4 +246,6 @@ if __name__ == "__main__":
         print('EXIT: Keyboard Interrupt')
         pass
 
+# pause to allow user to save the file if they wish
+plt.show()
 print('wait')
