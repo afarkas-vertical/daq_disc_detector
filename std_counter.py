@@ -8,9 +8,7 @@ from builtins import *  # @UnusedWildImport
 
 from mcculw import ul
 from mcculw.enums import InterfaceType
-import mcculw.enums as ENUMS
-from mcculw.ul import ULError
-
+import mcculw.enums as E
 from mcculw.device_info import DaqDeviceInfo
 
 # python system type imports
@@ -74,7 +72,7 @@ def initialize_daqs():
     #print(str(len(daqs_discovered)) + str(' DAQs discovered'))
 
     # calculate the length of a counter tick, which has fundamental period 20.83 ns
-    counter_tick_exp = ENUMS.CounterTickSize.TICK20PT83ns
+    counter_tick_exp = E.CounterTickSize.TICK20PT83ns
     counter_tick = 20.83E-9*10**(int(counter_tick_exp.value))
 
     # loop through discovered daqs and create them in the Universal Library
@@ -94,11 +92,11 @@ def initialize_daqs():
 
         # assign the max number of counter channels the board can sustain
             for c in range(0,max_counter_channels):
-                ul.c_config_scan(device_info.board_num,c,ENUMS.CounterMode.GATING_ON,
-                                 ENUMS.CounterDebounceTime.DEBOUNCE_NONE,ENUMS.CounterDebounceMode.TRIGGER_AFTER_STABLE,
-                                 ENUMS.CounterEdgeDetection.RISING_EDGE,counter_tick_exp,c)
+                ul.c_config_scan(device_info.board_num,c,E.CounterMode.GATING_ON,
+                                 E.CounterDebounceTime.DEBOUNCE_NONE,E.CounterDebounceMode.TRIGGER_AFTER_STABLE,
+                                 E.CounterEdgeDetection.RISING_EDGE,counter_tick_exp,c)
 
-            scroll_text.insert(tk.INSERT, 'NOTE: Total ' + str(max_counter_channels) + ' counter channels configured\n')
+            scroll_text.insert(tk.INSERT, '  NOTE: Total ' + str(max_counter_channels) + ' counter channels configured\n')
 
         # if counters are not supported
         else:
@@ -112,11 +110,11 @@ def initialize_daqs():
             for p in range(0,device_info._dio_info.num_ports):
                 # configure the port for output (this will be used to signal external hardware as needed of an event)
                 # NOTE: CTR-08 boards (at least) only have 1 DIO port and cannot index more than 1 port w/ below function, so this is hardcoded unintentionally
-                ul.d_config_port(device_info.board_num, ENUMS.DigitalPortType.AUXPORT, ENUMS.DigitalIODirection.OUT)
+                ul.d_config_port(device_info.board_num, E.DigitalPortType.AUXPORT, E.DigitalIODirection.OUT)
                 # initialize the port low (not sure if needed)
-                ul.d_out_32(device_info.board_num, ENUMS.DigitalPortType.AUXPORT, 0)
+                ul.d_out_32(device_info.board_num, E.DigitalPortType.AUXPORT, 0)
 
-            scroll_text.insert(tk.INSERT, 'NOTE: Digital Output configured successfully\n')
+            scroll_text.insert(tk.INSERT, '  NOTE: Digital Output configured successfully\n')
             #print('NOTE: Digital Output configured successfully')
         
         else:
@@ -166,16 +164,8 @@ def setup_savefiles():
                 #print('ERROR: DAQs not initialized or discovered')
                 pass
 
-# the main loop to capture events
-#TODO: create a way to stop collection
 def run_loop():
-    # global onoff
-
-    # if onoff:
-    #     onoff == False
-    # else:
-    #     onoff == True
-    # runtime main loop
+    # try to clear the counters, this is helpful to check if they exist also
     try:
         # clear data from the last run of the counters on all boards
         for board in range(0,len(daqs_discovered)):
@@ -183,22 +173,49 @@ def run_loop():
             for counter_num in range(0,max_counter_channels):
                 ul.c_clear(device_info.board_num, counter_num)
 
+        # initialize the max detected since this is preserved between loops
+        global data_max_list
         data_max_list = list()  # container for the max signal seen per channel in session
-        data_max_list = [0 for i in range(0,max_counter_channels)] 
+        data_max_list = [0 for i in range(0,max_counter_channels)]
+    except:
+        scroll_text.insert(tk.INSERT, 'ERROR: No DAQs initialized or configured\n')
+        return
 
-        # measure loop time
+    # check if Record button has been pressed
+    try:
+        file = open(full_filename, 'w')
+    except:
+         scroll_text.insert(tk.INSERT, 'NOTE: File logging not set up\n')    
+         return
+
+    # if no errors, proceed with scanning=true
+    global scanning
+    scanning=True
+    scroll_text.insert(tk.INSERT, 'Scanning Started...\n')    
+    root.after(1000,scan_loop)
+
+def stop_loop():
+    global scanning
+    scanning=False
+    scroll_text.insert(tk.INSERT, 'Scanning Stopped...\n')    
+    root.after(1000,scan_loop)
+
+def scan_loop():
+    global loop_start
+    try:
+        # way to tell if it's the firs tloop
+        if not loop_start:
+            pass
+
+    except:
+        # start loop time counter
         loop_start = time.time()
-        scroll_text.insert(tk.INSERT, 'NOTE: Logging started at ' + str(dt.datetime.now()) + '\n')
+        root.after(update_rate*1000, scan_loop)
+        return
 
-        # now begin looping for data capture
-        while True:
-            # give user an out
-            # print('\nPress Ctrl+C to exit loop')
-
-            # measure and print loop time
-            loop_end = time.time()
-            scroll_text.insert(tk.INSERT, 'NOTE: Loop time is ' + str(loop_end-loop_start) + '\n')
-            #print('Loop time is ' + str(loop_end-loop_start))
+    # main switch to control if loop executes
+    if scanning:
+            # start loop time counter
             loop_start = time.time()
 
             data_list = list()  # container for data from channel data
@@ -221,61 +238,43 @@ def run_loop():
                     # determine the range of the tick, ie greater than 1, 1:10, 10:100, beyond 100?
                     if pulse_width_us >= 1:
                         # send a trigger on the DIO port that there was an event on the counter number in question
-                        ul.d_bit_out(board, ENUMS.DigitalPortType.AUXPORT, counter_num, 1)
-
+                        ul.d_bit_out(board, E.DigitalPortType.AUXPORT, counter_num, 1)
                         # issue some text notes for when a pulse falls within specific lengths
                         if (pulse_width_us >= 1) & (pulse_width_us < 10):
                             scroll_text.insert(tk.INSERT, 
-                                               'Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
-                                               ', detected 1 us event' + ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + \
+                                            'Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
+                                            ', detected 1 us event' + ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + \
                                                 str(data_max_list[counter_num]) + '\n')
-                            # print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 1 us event' + 
-                            #       ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + str(data_max_list[counter_num]))
                         if (pulse_width_us >= 10) & (pulse_width_us < 100):
                             scroll_text.insert(tk.INSERT, 
-                                               'Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
-                                               ', detected 10 us event' + ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + \
+                                            'Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
+                                            ', detected 10 us event' + ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + \
                                                 str(data_max_list[counter_num]) + '\n')
-                            # print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 10 us event' +
-                            #        ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + str(data_max_list[counter_num]))
                         if (pulse_width_us >= 100):
                             scroll_text.insert(tk.INSERT, 
-                                               'Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
-                                               ', detected 1 us event' + ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + \
+                                            'Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
+                                            ', detected 1 us event' + ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + \
                                                 str(data_max_list[counter_num]) + '\n')
-                            # print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 100 us event' +
-                            #     ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + str(data_max_list[counter_num]))
 
                         # clear the results after every loop, values will be stored in data_list_max and also logged
                         ul.c_clear(device_info.board_num, counter_num)
-
                     # TODO: IMPORTANT: need a way to distinguish if a line is shorted, i.e. if the pulse_width is close to the loop time
-
-                    else:
-                        # no event was detected
-                        # print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
-                        #       ', no event detected, Max Value recorded is ' + str(data_max_list[counter_num]))
-                        pass
 
             # write the data to the csv using pandas df
             pd.DataFrame([str(pd.to_datetime(dt.datetime.now()))] + data_list).T.to_csv(full_filename, header=False, index=False, mode='a')
-            # pause for amount of time in seconds
-            time.sleep(update_rate)
             
             # display the latest data on the trace
-            #root.after(0,update_plot(dt.datetime.now(),[data_list[i] for i in range(0,len(data_list))]))
             chart.update_chart(dt.datetime.now(),[data_list[i] for i in range(0,len(data_list))])
             #TODO: maybe add a way to plot the data_list_max
             root.update()
+            
+            # measure and print loop time
+            loop_end = time.time()
+            scroll_text.insert(tk.INSERT, 'NOTE: Loop time is ' + str(loop_end-loop_start) + '\n')
 
-            # clear the terminal screen for some formatting
-            os.system('cls' if os.name == 'nt' else 'clear')
+    # recursion for this loop
+    root.after(update_rate*1000, scan_loop)
 
-    except KeyboardInterrupt:
-        print('EXIT: Keyboard Interrupt')
-        pass
-
-# main loop begsin here
 if __name__ == "__main__":
     # create the main GUI named root
     root = tk.Tk()
@@ -292,28 +291,31 @@ if __name__ == "__main__":
     root.columnconfigure(3, weight=1)
     root.columnconfigure(4, weight=1)
 
+    # global font
+    global_font = ('Calibri', 24)
+
     # lay out the buttons used
-    button_init = tk.Button(root, text="Initialize", command=initialize_daqs)
+    button_init = tk.Button(root, text="Initialize", command=initialize_daqs, font=global_font)
     button_init.grid(row=0, column=0, sticky='NSEW', columnspan=1)
-    button_save = tk.Button(root, text="Record", command=setup_savefiles)
+    button_save = tk.Button(root, text="Record", command=setup_savefiles, font=global_font)
     button_save.grid(row=0, column=1, sticky='NSEW', columnspan=1)
-    button_run = tk.Button(root, text="Run", command=run_loop)
+    button_run = tk.Button(root, text="Run", command=run_loop, font=global_font)
     button_run.grid(row=0, column=2, sticky='NSEW', columnspan=1)
-    button_stop = tk.Button(root, text="Stop", command=run_loop)
+    button_stop = tk.Button(root, text="Stop", command=stop_loop, font=global_font)
     button_stop.grid(row=0, column=3, sticky='NSEW', columnspan=1)
-    button_quit = tk.Button(root, text="Quit", command=quit)
+    button_quit = tk.Button(root, text="Quit", command=quit, font=global_font)
     button_quit.grid(row=0, column=4, sticky='NSEW', columnspan=1)
 
     # finally add a scrolled text box to the bottom of frame
     global scroll_text
-    scroll_text = ScrolledText(root)
-    scroll_text.grid(row=2, column=0, columnspan=5, sticky='NSEW')
+    scroll_text = ScrolledText(root, font=('Calibri', 16), height=8)
+    scroll_text.grid(row=2, column=0, rowspan=5, columnspan=5, sticky='NSEW')
+
+    global scanning
+    scanning = False
 
     # initialize the canvas/stripchart graph
     chart = StripChart(root)
 
     # start up running the mainloop
     root.mainloop()
- 
-# pause to allow user to save the file if they wish
-print('wait')
