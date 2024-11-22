@@ -21,30 +21,19 @@ import pandas as pd
 
 # GUI related imports
 import tkinter as tk
+from tkinter import filedialog
+from tkinter.scrolledtext import ScrolledText
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # some globals
-global max_counter_channels
-global counter_tick_exp
-global counter_tick
 global update_rate
-update_rate = 2   # how fast the terminal refreshes, in seconds
+update_rate = 1   # how fast the terminal refreshes, in seconds
 
-#
-# TODO: break the below into functions when ready to add in GUI elements
-#
-
-# to be used later, Tkinter stripchart
-def update_plot(t,v):
-    ax.plot(t, [v])
-    ax.legend(df.columns[1:])
-    canvas.draw()
-    #plt.show(block=False)
-
-# stripchart class
+# stripchart class: seems to add about 100 ms to main loop TODO: rewrite this for more efficiency
 class StripChart:
-    def __init__(self, master, title="Strip Chart", xlabel="Time", ylabel="Value"):
+    def __init__(self, master, title='Discontinuity Detected Over Time for all Boards and Channels', 
+                 xlabel='Time', ylabel='Discontinuity Detected (us)'):
         self.master = master
         self.master.title(title)
 
@@ -54,7 +43,7 @@ class StripChart:
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.master)
         self.canvas.draw()
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.canvas.get_tk_widget().grid(row=1, column=0, columnspan=15, rowspan=1, sticky='NSEW')
 
         self.x_data = []
         self.y_data = []
@@ -66,31 +55,23 @@ class StripChart:
         self.ax.clear()
         self.ax.plot(self.x_data, self.y_data)
         self.ax.legend(df.columns[1:])
-        self.ax.set_xlabel('Time')
-        self.ax.set_ylabel('Discontinuity Detected (us)')
-        self.ax.set_title('Discontinuity Detected Over Time for all Boards and Channels')
         self.canvas.draw()
 
-if __name__ == "__main__":
-    # create the main GUI named root
-    root = tk.Tk()
-    root.title("Discontinuity Detector GUI Stripchart")
-    root.geometry('1050x750')
-    root.configure(bg='gray')
-    root.lift()
+# discovers which DAQs are on the USB bus
+def initialize_daqs():
+    global max_counter_channels
+    global counter_tick_exp 
+    global counter_tick
+    global daqs_discovered
 
-    # initialize the canvas/stripchart graph
-    chart = StripChart(root)
-
-    # runInitialize()
-
-    ### TODO: break this into functions of Initialize, Run, Event?
-    # start by discovering which DAQ are on the USB bus
-    # tell the daq to ignore instacal settings
+    # tell the daq to ignore instacal settings / this is just required
     ul.ignore_instacal()
 
     # returns a list of all daqs found on the USB bus\
     daqs_discovered = ul.get_daq_device_inventory(InterfaceType.USB)
+
+    scroll_text.insert(tk.INSERT, str(len(daqs_discovered)) + ' DAQs discovered \n')
+    #print(str(len(daqs_discovered)) + str(' DAQs discovered'))
 
     # calculate the length of a counter tick, which has fundamental period 20.83 ns
     counter_tick_exp = ENUMS.CounterTickSize.TICK20PT83ns
@@ -99,6 +80,7 @@ if __name__ == "__main__":
     # loop through discovered daqs and create them in the Universal Library
     # additionally configure all daqs as counters in pulse width mode
     for n in range(0,len(daqs_discovered)):
+        scroll_text.insert(tk.INSERT, 'Board ' + str(n) + ' Configuration:\n')
         ul.create_daq_device(n,daqs_discovered[n])
         device_info = DaqDeviceInfo(n)
         # check if counters are supported
@@ -115,10 +97,13 @@ if __name__ == "__main__":
                 ul.c_config_scan(device_info.board_num,c,ENUMS.CounterMode.GATING_ON,
                                  ENUMS.CounterDebounceTime.DEBOUNCE_NONE,ENUMS.CounterDebounceMode.TRIGGER_AFTER_STABLE,
                                  ENUMS.CounterEdgeDetection.RISING_EDGE,counter_tick_exp,c)
-                                               
+
+            scroll_text.insert(tk.INSERT, 'NOTE: Total ' + str(max_counter_channels) + ' counter channels configured\n')
+
         # if counters are not supported
         else:
-            print('ERROR: No counter channels on DAQs detected')
+            scroll_text.insert(tk.INSERT, 'ERROR: No counter channels on DAQs detected\n')
+            #print('ERROR: No counter channels on DAQs detected')
             quit()
 
         # next check if digital IO is supported
@@ -130,39 +115,68 @@ if __name__ == "__main__":
                 ul.d_config_port(device_info.board_num, ENUMS.DigitalPortType.AUXPORT, ENUMS.DigitalIODirection.OUT)
                 # initialize the port low (not sure if needed)
                 ul.d_out_32(device_info.board_num, ENUMS.DigitalPortType.AUXPORT, 0)
+
+            scroll_text.insert(tk.INSERT, 'NOTE: Digital Output configured successfully\n')
+            #print('NOTE: Digital Output configured successfully')
         
         else:
-            print('WARNIGN: Digital IO is not supported on this board')
+            scroll_text.insert(tk.INSERT, 'WARNING: Digital IO is not supported on this board\n')
+            #print('WARNING: Digital IO is not supported on this board')
             pass
 
-    try:
+# basic function to setup the .csv logging file
+def setup_savefiles():
+        global full_filename
         # create the full file name and write the header 
-        # TODO: add in time and date stamps to filename
         # TODO: add in a way to sae to a specific directory
-        filename = 'test.csv'
-        full_filename = os.path.join(os.getcwd(),filename)
+        date_time = str(dt.date.today()) + '_' + str(dt.datetime.now().hour) + 'h' + \
+                        str(dt.datetime.now().minute) + 'm' + str(dt.datetime.now().second) + 's'
+        file_timestamp = date_time + '.csv'
+        
+        # get the save directory
+        base_dir = filedialog.askdirectory(initialdir=os.getcwd(), title='Choose directory for saving file')
+        full_filename = base_dir + '/Test_' + file_timestamp
 
-        # open the file quickly so that we can write the header
+        # open the file to write the header
         try:
             file = open(full_filename, 'w')
+
         except:
-            print('ERROR: file is open already. close file and try again')
-            quit()
+            scroll_text.insert(tk.INSERT, 'ERROR: file is open already. Close file and try again\n')
+            #print('ERROR: file is open already. close file and try again')
+            pass
+
         else:
-            board_names = [(daqs_discovered[b].product_name + ' ' + daqs_discovered[b].unique_id) for b in range(0,len(daqs_discovered))]
+            try:
+                board_names = [(daqs_discovered[b].product_name + ' ' + daqs_discovered[b].unique_id) for b in range(0,len(daqs_discovered))]
+                test_header = f"""Begin logging at {dt.datetime.now()}\n
+                Num. Boards is {len(daqs_discovered)} - {' ID: '.join(board_names[n] for n in range(0,len(board_names)))}\n
+                \n"""
+                file.write(test_header)
+                file.close()
+                global df   # need access to column names for plotting
+                # start logging using dataframe
+                df = pd.DataFrame(columns=['Time'] + 
+                                ['B'+str(b)+',C'+str(c) for b in range(0,len(daqs_discovered)) for c in range(0,max_counter_channels)])
+                df.to_csv(full_filename, index=False, columns=df.columns, mode='a')
+                scroll_text.insert(tk.INSERT, 'NOTE: File saved as ' + full_filename + '\n')
 
-            test_header = f"""Begin logging at {dt.datetime.now()}\n
-            Num. Boards is {len(daqs_discovered)} - {' ID: '.join(board_names[n] for n in range(0,len(board_names)))}\n
-            \n"""
-            file.write(test_header)
-            file.close()
+            except:
+                scroll_text.insert(tk.INSERT, 'ERROR: No DAQs initialized or discovered\n')
+                #print('ERROR: DAQs not initialized or discovered')
+                pass
 
-        global df   # need access to clumn names for plotting
-        # start logging using dataframe
-        df = pd.DataFrame(columns=['Time'] + 
-                          ['B'+str(b)+',C'+str(c) for b in range(0,len(daqs_discovered)) for c in range(0,max_counter_channels)])
-        df.to_csv(full_filename, index=False, columns=df.columns, mode='a')
-        
+# the main loop to capture events
+#TODO: create a way to stop collection
+def run_loop():
+    # global onoff
+
+    # if onoff:
+    #     onoff == False
+    # else:
+    #     onoff == True
+    # runtime main loop
+    try:
         # clear data from the last run of the counters on all boards
         for board in range(0,len(daqs_discovered)):
             device_info = DaqDeviceInfo(board)
@@ -174,15 +188,17 @@ if __name__ == "__main__":
 
         # measure loop time
         loop_start = time.time()
+        scroll_text.insert(tk.INSERT, 'NOTE: Logging started at ' + str(dt.datetime.now()) + '\n')
 
-        # now egin looping for data capture
+        # now begin looping for data capture
         while True:
             # give user an out
-            print('\nPress Ctrl+C to exit loop')
+            # print('\nPress Ctrl+C to exit loop')
 
             # measure and print loop time
             loop_end = time.time()
-            print('Loop time is ' + str(loop_end-loop_start))
+            scroll_text.insert(tk.INSERT, 'NOTE: Loop time is ' + str(loop_end-loop_start) + '\n')
+            #print('Loop time is ' + str(loop_end-loop_start))
             loop_start = time.time()
 
             data_list = list()  # container for data from channel data
@@ -209,14 +225,26 @@ if __name__ == "__main__":
 
                         # issue some text notes for when a pulse falls within specific lengths
                         if (pulse_width_us >= 1) & (pulse_width_us < 10):
-                            print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 1 us event' + 
-                                  ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + str(data_max_list[counter_num]))
+                            scroll_text.insert(tk.INSERT, 
+                                               'Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
+                                               ', detected 1 us event' + ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + \
+                                                str(data_max_list[counter_num]) + '\n')
+                            # print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 1 us event' + 
+                            #       ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + str(data_max_list[counter_num]))
                         if (pulse_width_us >= 10) & (pulse_width_us < 100):
-                            print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 10 us event' +
-                                   ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + str(data_max_list[counter_num]))
+                            scroll_text.insert(tk.INSERT, 
+                                               'Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
+                                               ', detected 10 us event' + ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + \
+                                                str(data_max_list[counter_num]) + '\n')
+                            # print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 10 us event' +
+                            #        ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + str(data_max_list[counter_num]))
                         if (pulse_width_us >= 100):
-                            print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 100 us event' +
-                                ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + str(data_max_list[counter_num]))
+                            scroll_text.insert(tk.INSERT, 
+                                               'Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
+                                               ', detected 1 us event' + ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + \
+                                                str(data_max_list[counter_num]) + '\n')
+                            # print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + ', detected 100 us event' +
+                            #     ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + str(data_max_list[counter_num]))
 
                         # clear the results after every loop, values will be stored in data_list_max and also logged
                         ul.c_clear(device_info.board_num, counter_num)
@@ -225,8 +253,9 @@ if __name__ == "__main__":
 
                     else:
                         # no event was detected
-                        print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
-                              ', no event detected, Max Value recorded is ' + str(data_max_list[counter_num]))
+                        # print('Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
+                        #       ', no event detected, Max Value recorded is ' + str(data_max_list[counter_num]))
+                        pass
 
             # write the data to the csv using pandas df
             pd.DataFrame([str(pd.to_datetime(dt.datetime.now()))] + data_list).T.to_csv(full_filename, header=False, index=False, mode='a')
@@ -236,8 +265,8 @@ if __name__ == "__main__":
             # display the latest data on the trace
             #root.after(0,update_plot(dt.datetime.now(),[data_list[i] for i in range(0,len(data_list))]))
             chart.update_chart(dt.datetime.now(),[data_list[i] for i in range(0,len(data_list))])
+            #TODO: maybe add a way to plot the data_list_max
             root.update()
-            #root.mainloop()
 
             # clear the terminal screen for some formatting
             os.system('cls' if os.name == 'nt' else 'clear')
@@ -246,6 +275,45 @@ if __name__ == "__main__":
         print('EXIT: Keyboard Interrupt')
         pass
 
+# main loop begsin here
+if __name__ == "__main__":
+    # create the main GUI named root
+    root = tk.Tk()
+    root.title("Discontinuity Detector GUI Stripchart")
+    root.geometry('1920x1080')
+    root.configure(bg='gray')
+    root.lift()
+    root.rowconfigure(0, weight=1)
+    root.rowconfigure(1, weight=10)
+    root.rowconfigure(2, weight=3)
+    root.columnconfigure(0, weight=1)
+    root.columnconfigure(1, weight=1)
+    root.columnconfigure(2, weight=1)
+    root.columnconfigure(3, weight=1)
+    root.columnconfigure(4, weight=1)
+
+    # lay out the buttons used
+    button_init = tk.Button(root, text="Initialize", command=initialize_daqs)
+    button_init.grid(row=0, column=0, sticky='NSEW', columnspan=1)
+    button_save = tk.Button(root, text="Record", command=setup_savefiles)
+    button_save.grid(row=0, column=1, sticky='NSEW', columnspan=1)
+    button_run = tk.Button(root, text="Run", command=run_loop)
+    button_run.grid(row=0, column=2, sticky='NSEW', columnspan=1)
+    button_stop = tk.Button(root, text="Stop", command=run_loop)
+    button_stop.grid(row=0, column=3, sticky='NSEW', columnspan=1)
+    button_quit = tk.Button(root, text="Quit", command=quit)
+    button_quit.grid(row=0, column=4, sticky='NSEW', columnspan=1)
+
+    # finally add a scrolled text box to the bottom of frame
+    global scroll_text
+    scroll_text = ScrolledText(root)
+    scroll_text.grid(row=2, column=0, columnspan=5, sticky='NSEW')
+
+    # initialize the canvas/stripchart graph
+    chart = StripChart(root)
+
+    # start up running the mainloop
+    root.mainloop()
+ 
 # pause to allow user to save the file if they wish
-plt.show()
 print('wait')
