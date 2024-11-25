@@ -26,7 +26,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # some globals
 global update_rate
-update_rate = 1   # how fast the terminal refreshes, in seconds
+update_rate = 1   # how fast the terminal refreshes, in milliseconds
 
 # stripchart class: seems to add about 100 ms to main loop TODO: rewrite this for more efficiency
 class StripChart:
@@ -141,7 +141,6 @@ def setup_savefiles():
 
         except:
             scroll_text.insert(tk.INSERT, 'ERROR: file is open already. Close file and try again\n')
-            #print('ERROR: file is open already. close file and try again')
             pass
 
         else:
@@ -161,8 +160,7 @@ def setup_savefiles():
 
             except:
                 scroll_text.insert(tk.INSERT, 'ERROR: No DAQs initialized or discovered\n')
-                #print('ERROR: DAQs not initialized or discovered')
-                pass
+                file.close()
 
 def run_loop():
     # try to clear the counters, this is helpful to check if they exist also
@@ -183,7 +181,9 @@ def run_loop():
 
     # check if Record button has been pressed
     try:
-        file = open(full_filename, 'w')
+        file = open(full_filename, 'r')
+        if file:
+            file.close()
     except:
          scroll_text.insert(tk.INSERT, 'NOTE: File logging not set up\n')    
          return
@@ -210,7 +210,7 @@ def scan_loop():
     except:
         # start loop time counter
         loop_start = time.time()
-        root.after(update_rate*1000, scan_loop)
+        root.after(update_rate, scan_loop)
         return
 
     # main switch to control if loop executes
@@ -273,7 +273,7 @@ def scan_loop():
             scroll_text.insert(tk.INSERT, 'NOTE: Loop time is ' + str(loop_end-loop_start) + '\n')
 
     # recursion for this loop
-    root.after(update_rate*1000, scan_loop)
+    root.after(update_rate, scan_loop)
 
 if __name__ == "__main__":
     # create the main GUI named root
