@@ -26,7 +26,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # some globals
 global update_rate
-update_rate = 1   # how fast the terminal refreshes, in milliseconds
+update_rate = 1000   # how fast the terminal refreshes, in milliseconds
 
 # stripchart class: seems to add about 100 ms to main loop TODO: rewrite this for more efficiency
 class StripChart:
@@ -36,8 +36,9 @@ class StripChart:
         self.master.title(title)
 
         self.fig, self.ax = plt.subplots()
-        self.ax.set_xlabel(xlabel)
-        self.ax.set_ylabel(ylabel)
+        self.ax.set_xlabel(xlabel, fontsize=16)
+        self.ax.set_ylabel(ylabel, fontsize=16)
+        self.fig.tight_layout(pad=1.0)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.master)
         self.canvas.draw()
@@ -45,13 +46,28 @@ class StripChart:
 
         self.x_data = []
         self.y_data = []
+        self.y_data_max = []
 
     def update_chart(self, x, y):
-        self.x_data.append(x)
-        self.y_data.append(y)
+        # refresh the plot after 1000 ticks bc it gets too slow
+        if len(self.x_data) > 1000:
+            self.x_data = [x]
+            self.y_data = [y]
+            #self.y_data_max = self.y_data_max[len(self.y_data_max)]
+        else:
+            self.x_data.append(x)
+            self.y_data.append(y)
+            # if len(self.y_data_max) == 0:
+            #     self.y_data_max = self.y_data
+            # else:
+            #     if max(self.y_data) > max(self.y_data_max):
+            #         self.y_data_max.append([self.y_data[i] for i in range(0,len(self.y_data)) if self.y_data[i] > self.y_data_max[i]])
+            #     else:
+            #         self.y_data_max.append(self.y_data_max[len(self.y_data_max)-1])
 
         self.ax.clear()
         self.ax.plot(self.x_data, self.y_data)
+        #self.ax.plot(self.x_data, self.y_data_max, 'r--')
         self.ax.legend(df.columns[1:])
         self.canvas.draw()
 
@@ -92,10 +108,13 @@ def initialize_daqs():
 
         # assign the max number of counter channels the board can sustain
             for c in range(0,max_counter_channels):
+                #TODO: big todo here, figure out how to set GATING_ON and INVERT_GATE
                 ul.c_config_scan(device_info.board_num,c,E.CounterMode.GATING_ON,
                                  E.CounterDebounceTime.DEBOUNCE_NONE,E.CounterDebounceMode.TRIGGER_AFTER_STABLE,
                                  E.CounterEdgeDetection.RISING_EDGE,counter_tick_exp,c)
-
+                # ul.c_config_scan(device_info.board_num,c,E.CounterMode.INVERT_GATE,
+                #                  E.CounterDebounceTime.DEBOUNCE_NONE,E.CounterDebounceMode.TRIGGER_AFTER_STABLE,
+                #                  E.CounterEdgeDetection.RISING_EDGE,counter_tick_exp,c)
             scroll_text.insert(tk.INSERT, '  NOTE: Total ' + str(max_counter_channels) + ' counter channels configured\n')
 
         # if counters are not supported
