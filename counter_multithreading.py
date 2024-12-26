@@ -343,8 +343,11 @@ def scan_loop():
 
         # wait for the remainder
         time.sleep(wait_time if wait_time > 0 else 0)
+    else:
+        # if not scanning
+        root.after(1000, scan_loop)
 
-    # recursion for this loop
+    # general recursion for this loop
     root.after(0, scan_loop)
 
 if __name__ == "__main__":
