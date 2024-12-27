@@ -30,8 +30,8 @@ import concurrent.futures
 # some globals
 global update_rate
 global stripchart_rate
-update_rate = 1   # how fast the terminal refreshes, in milliseconds
-stripchart_rate = 5   # how often the stripchart function plots in "cycles" of data collection
+update_rate = 0   # how fast the terminal refreshes, in milliseconds
+stripchart_rate = 10   # how often the stripchart function plots in "cycles" of data collection
 
 # stripchart class: seems to add about 100 ms to main loop TODO: rewrite this for more efficiency
 class StripChart:
@@ -241,6 +241,8 @@ def scan_loop():
     global loop_start
     global exp_start
     global loop_time    
+    global boards
+    global chans
     
     try:
         # way to tell if it's the firs tloop
@@ -248,10 +250,17 @@ def scan_loop():
             pass
 
     except:
+        # this is the first run through the scanning loop
         # note time of start of experiment
         exp_start = time.time()
         # start loop time counter
         loop_start = time.time()
+        
+        # list of boards in play # NOTE: may need to improve this based on DaqDeviceInfo(board).board_num
+        boards = list(range(0,len(daqs_discovered)))
+        # list of channels in play 
+        chans = list(range(0,max_counter_channels))
+
         root.after(update_rate, scan_loop)
 
     # main switch to control if loop executes
@@ -259,72 +268,80 @@ def scan_loop():
         # start loop time counter
         loop_start = time.time()
 
-        data_list = list()  # container for data from channel data
-
         # NOTE: loop for 2 boards takes around 5 ms with all logging and visual updates disabled
         # NOTE: for 2 boards takes around 80 ms with visual updates enabled
         # NOTE: for 2 boards, takes around 150 ms with logging and visuals enabled
 
         #[ul.c_in_32(b,c) for b in boards for c in chans]
-        # loop over number of boards
-        for board in range(0,len(daqs_discovered)):
-            # get device info
-            device_info = DaqDeviceInfo(board)
-            # read through channels at a rate and print hte results to the console
-            for counter_num in range(0,max_counter_channels):
-                # get the reading and multiply by counter tick length to get the time
-                pulse_width = ul.c_in_32(device_info.board_num,counter_num)*counter_tick
-                # change to microseconds and round (formatting and presentation)
-                pulse_width_us = round(pulse_width/1E-6,1)
-                data_list.append(pulse_width_us)
 
-                # this is just for presentation, this data isn't logged (as of this writing)
-                if pulse_width_us > data_max_list[counter_num]:
-                    data_max_list[counter_num] = pulse_width_us
 
-                # determine the range of the tick, ie greater than 1, 1:10, 10:100, beyond 100?
-                if pulse_width_us >= 1:
-                    # send a trigger on the DIO port that there was an event on the counter number in question
-                    ul.d_bit_out(board, E.DigitalPortType.AUXPORT, counter_num, 1)
-                    # issue some text notes for when a pulse falls within specific lengths
-                    if (pulse_width_us >= 1) & (pulse_width_us < 10):
-                        scroll_text.insert(tk.INSERT, 
-                                        'Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
-                                        ', detected 1 us event' + ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + \
-                                            str(data_max_list[counter_num]) + '\n')
-                    if (pulse_width_us >= 10) & (pulse_width_us < 100):
-                        scroll_text.insert(tk.INSERT, 
-                                        'Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
-                                        ', detected 10 us event' + ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + \
-                                            str(data_max_list[counter_num]) + '\n')
-                    if (pulse_width_us >= 100):
-                        scroll_text.insert(tk.INSERT, 
-                                        'Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
-                                        ', detected 1 us event' + ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + \
-                                            str(data_max_list[counter_num]) + '\n')
+        # OLD WAY
+        # # loop over number of boards
+        # for board in range(0,len(daqs_discovered)):
+        #     # get device info
+        #     device_info = DaqDeviceInfo(board)
+        #     # read through channels at a rate and print hte results to the console
+        #     for counter_num in range(0,max_counter_channels):
+        #         # get the reading and multiply by counter tick length to get the time
+        #         pulse_width = ul.c_in_32(device_info.board_num,counter_num)*counter_tick
+        #         # change to microseconds and round (formatting and presentation)
+        #         pulse_width_us = round(pulse_width/1E-6,1)
+        #         data_list.append(pulse_width_us)
 
-                    # clear the results after every loop, values will be stored in data_list_max and also logged
-                    ul.c_clear(device_info.board_num, counter_num)
-                # TODO: IMPORTANT: need a way to distinguish if a line is shorted, i.e. if the pulse_width is close to the loop time
+        #         # this is just for presentation, this data isn't logged (as of this writing)
+        #         if pulse_width_us > data_max_list[counter_num]:
+        #             data_max_list[counter_num] = pulse_width_us
 
+        #         # determine the range of the tick, ie greater than 1, 1:10, 10:100, beyond 100?
+        #         if pulse_width_us >= 1:
+        #             # send a trigger on the DIO port that there was an event on the counter number in question
+        #             ul.d_bit_out(board, E.DigitalPortType.AUXPORT, counter_num, 1)
+        #             # issue some text notes for when a pulse falls within specific lengths
+        #             if (pulse_width_us >= 1) & (pulse_width_us < 10):
+        #                 scroll_text.insert(tk.INSERT, 
+        #                                 'Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
+        #                                 ', detected 1 us event' + ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + \
+        #                                     str(data_max_list[counter_num]) + '\n')
+        #             if (pulse_width_us >= 10) & (pulse_width_us < 100):
+        #                 scroll_text.insert(tk.INSERT, 
+        #                                 'Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
+        #                                 ', detected 10 us event' + ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + \
+        #                                     str(data_max_list[counter_num]) + '\n')
+        #             if (pulse_width_us >= 100):
+        #                 scroll_text.insert(tk.INSERT, 
+        #                                 'Board ' + str(device_info.board_num) + ', Counter ' + str(counter_num) + 
+        #                                 ', detected 1 us event' + ' of ' + str(pulse_width_us) + ' us, Max Value recorded is ' + \
+        #                                     str(data_max_list[counter_num]) + '\n')
+
+        #             # clear the results after every loop, values will be stored in data_list_max and also logged
+        #             ul.c_clear(device_info.board_num, counter_num)
+        #         # TODO: IMPORTANT: need a way to distinguish if a line is shorted, i.e. if the pulse_width is close to the loop time
+
+        # pythonic list comprehension
+        data_list = [round(counter_tick*count/1E-6,1) for count in [ul.c_in_32(b,c) for b in boards for c in chans]]
+        # clear counters for next loop
+        #[ul.c_clear(b,c) for b in boards for c in chans]
+
+        # use Threading for slow stuff
         with concurrent.futures.ThreadPoolExecutor() as executor:
             if logging:
-                f1 = executor.submit(write_datum, data_list, full_filename)
-            f2 = executor.submit(chart.update_chart, dt.datetime.now(), [data_list[i] for i in range(0,len(data_list))])
+                f_log = executor.submit(write_datum, data_list, full_filename)
+            f_chart = executor.submit(chart.update_chart, dt.datetime.now(), [data_list[i] for i in range(0,len(data_list))])
     
         if len(chart.x_data) % stripchart_rate == 0:
             chart.canvas.draw()
+            scroll_text.yview(tk.END)
             # update the stripchart objects visually
             root.update()
 
         # #TODO: maybe add a way to plot the data_list_max
 
         # NOTE: comment this out at some point
-        loop_end = time.time()
-        loop_time = loop_end-loop_start
+        # loop_end = time.time()
+        # loop_time = loop_end-loop_start
 
-        scroll_text.insert(tk.INSERT, 'NOTE: Loop time is ' + str(round(loop_time*1000)) + 'ms\n')
-        scroll_text.yview(tk.END)
+        # scroll_text.insert(tk.INSERT, 'NOTE: Loop time is ' + str(round(loop_time*1000)) + 'ms\n')
+        # scroll_text.yview(tk.END)
         
         # measure and print loop time, scroll to end of text box
         loop_end = time.time()
@@ -335,8 +352,11 @@ def scan_loop():
         # wait for the remainder
         time.sleep(wait_time if wait_time > 0 else 0)
 
-    # general recursion for this loop
-    root.after(0, scan_loop)
+        # general recursion for this loop
+        root.after(0, scan_loop)
+
+    else:
+        root.after(1000,scan_loop)
 
 if __name__ == "__main__":
     # create the main GUI named root
