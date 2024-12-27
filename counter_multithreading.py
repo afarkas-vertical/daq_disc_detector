@@ -30,7 +30,7 @@ import concurrent.futures
 # some globals
 global update_rate
 global stripchart_rate
-update_rate = 200   # how fast the terminal refreshes, in milliseconds
+update_rate = 1   # how fast the terminal refreshes, in milliseconds
 stripchart_rate = 5   # how often the stripchart function plots in "cycles" of data collection
 
 # stripchart class: seems to add about 100 ms to main loop TODO: rewrite this for more efficiency
@@ -75,7 +75,8 @@ class StripChart:
             #self.ax.plot(self.x_data, self.y_data_max, 'r--')
             if logging:
                 self.ax.legend(df.columns[1:])
-            self.canvas.draw()
+            #self.canvas.draw()
+        return
 
 # discovers which DAQs are on the USB bus
 def initialize_daqs():
@@ -231,7 +232,6 @@ def stop_loop():
 # simple function that writes data_list to the file at full_filename in format specified
 def write_datum(data_list, full_filename):
     pd.DataFrame([str(pd.to_datetime(dt.datetime.now()))] + 
-                 #[str((dt.datetime.now()-exp_start).seconds) + '.' + str((dt.datetime.now()-exp_start).microseconds)] +
                  [str((time.time()-exp_start)*1000)] + 
                  data_list).T.to_csv(full_filename, header=False, index=False, mode='a')
     return
@@ -265,6 +265,7 @@ def scan_loop():
         # NOTE: for 2 boards takes around 80 ms with visual updates enabled
         # NOTE: for 2 boards, takes around 150 ms with logging and visuals enabled
 
+        #[ul.c_in_32(b,c) for b in boards for c in chans]
         # loop over number of boards
         for board in range(0,len(daqs_discovered)):
             # get device info
@@ -309,23 +310,14 @@ def scan_loop():
         with concurrent.futures.ThreadPoolExecutor() as executor:
             if logging:
                 f1 = executor.submit(write_datum, data_list, full_filename)
-            data_list_vals = [data_list[i] for i in range(0,len(data_list))]
-            #f2 = executor.submit(chart.update_chart, dt.datetime.now(), data_list_vals)
-
-        #print(f2.result())
-
-        # if logging:
-        #     # NOTE: adds about 40-50 ms
-        #     # write the data to the csv using pandas df
-        #     pd.DataFrame([str(pd.to_datetime(dt.datetime.now()))] + data_list).T.to_csv(full_filename, header=False, index=False, mode='a')
-
-        ## display the latest data on the trace
-        # NOTE: adds about 100 ms if called every loop!!
-        chart.update_chart(dt.datetime.now(),[data_list[i] for i in range(0,len(data_list))])
+            f2 = executor.submit(chart.update_chart, dt.datetime.now(), [data_list[i] for i in range(0,len(data_list))])
+    
+        if len(chart.x_data) % stripchart_rate == 0:
+            chart.canvas.draw()
+            # update the stripchart objects visually
+            root.update()
 
         # #TODO: maybe add a way to plot the data_list_max
-        # update the stripchart objects visually
-        root.update()
 
         # NOTE: comment this out at some point
         loop_end = time.time()
@@ -336,16 +328,12 @@ def scan_loop():
         
         # measure and print loop time, scroll to end of text box
         loop_end = time.time()
-        #pool.apply_async(scroll_text.insert, args=(tk.INSERT, 'NOTE: Loop time is ' + str(loop_end-loop_start) + '\n'))
         # calculate loop time
         loop_time = loop_end-loop_start
         wait_time = (update_rate-loop_time*1000)/1000
 
         # wait for the remainder
         time.sleep(wait_time if wait_time > 0 else 0)
-    else:
-        # if not scanning
-        root.after(1000, scan_loop)
 
     # general recursion for this loop
     root.after(0, scan_loop)
