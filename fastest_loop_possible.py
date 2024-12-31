@@ -42,10 +42,10 @@ if __name__ == "__main__":
     print(str(len(daqs_discovered)) + str(' DAQs discovered'))
 
     # calculate the length of a counter tick, which has fundamental period 20.83 ns
-    #counter_tick_exp = E.CounterTickSize.TICK20PT83ns
-    #counter_tick = 20.83E-9*10**(int(counter_tick_exp.value))
-    counter_tick_exp = E.CounterTickSize.TICK200ns
-    counter_tick = 200E-9*10**(int(counter_tick_exp.value))
+    counter_tick_exp = E.CounterTickSize.TICK20PT83ns
+    counter_tick = 20.83E-9
+    # counter_tick_exp = E.CounterTickSize.TICK200ns
+    # counter_tick = 200E-9
 
     # loop through discovered daqs and create them in the Universal Library
     # additionally configure all daqs as counters in pulse width mode
@@ -169,7 +169,7 @@ if __name__ == "__main__":
             loop_count = loop_count + 1
             loop_start = time.time()
 
-            [ul.c_clear(b,c) for b in boards for c in chans]
+            #[ul.c_clear(b,c) for b in boards for c in chans]
 
             data_list = [round(counter_tick*count/1E-6,1) for count in [ul.c_in_32(b,c) for b in boards for c in chans]]
 
