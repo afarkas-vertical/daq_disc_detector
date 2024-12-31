@@ -42,8 +42,10 @@ if __name__ == "__main__":
     print(str(len(daqs_discovered)) + str(' DAQs discovered'))
 
     # calculate the length of a counter tick, which has fundamental period 20.83 ns
-    counter_tick_exp = E.CounterTickSize.TICK20PT83ns
-    counter_tick = 20.83E-9*10**(int(counter_tick_exp.value))
+    #counter_tick_exp = E.CounterTickSize.TICK20PT83ns
+    #counter_tick = 20.83E-9*10**(int(counter_tick_exp.value))
+    counter_tick_exp = E.CounterTickSize.TICK200ns
+    counter_tick = 200E-9*10**(int(counter_tick_exp.value))
 
     # loop through discovered daqs and create them in the Universal Library
     # additionally configure all daqs as counters in pulse width mode
@@ -132,6 +134,25 @@ if __name__ == "__main__":
             print('ERROR: No DAQs initialized or discovered\n')
             file.close()
 
+    # before going into the main loop, set the windows task priority
+    import sys
+    try:
+        sys.getwindowsversion()
+    except AttributeError:
+        isWindows = False
+    else:
+        isWindows = True
+
+    if isWindows:
+        # Based on:
+        #   "Recipe 496767: Set Process Priority In Windows" on ActiveState
+        #   http://code.activestate.com/recipes/496767/
+        import win32api,win32process,win32con
+
+        pid = win32api.GetCurrentProcessId()
+        handle = win32api.OpenProcess(win32con.PROCESS_ALL_ACCESS, True, pid)
+        win32process.SetPriorityClass(handle, win32process.HIGH_PRIORITY_CLASS)
+
 
     boards = list(range(0,len(daqs_discovered)))
     chans = list(range(0,max_counter_channels))
@@ -143,16 +164,25 @@ if __name__ == "__main__":
     try:
         loop_count = 0
         exp_start = time.time()
+        loop_time = 1 # (in seconds)
         while True:
             loop_count = loop_count + 1
+            loop_start = time.time()
+
+            [ul.c_clear(b,c) for b in boards for c in chans]
+
             data_list = [round(counter_tick*count/1E-6,1) for count in [ul.c_in_32(b,c) for b in boards for c in chans]]
+
             df.loc[loop_count] = [pd.to_datetime(dt.datetime.now())] + [(time.time()-exp_start)*1000] + data_list
 
-            if loop_count % 1000 == 0:
+            if loop_count % 60 == 0:
                 df.to_csv(full_filename, header=False, index=False, mode='a')       
                 df = pd.DataFrame(columns=['DateTime'] + ['Elapsed'] +
                 ['B'+str(b)+',C'+str(c) for b in range(0,len(daqs_discovered)) for c in range(0,max_counter_channels)])
                 
-             
+            loop_end = time.time()
+            wait_time = (loop_time - (loop_end-loop_start))
+            time.sleep(wait_time if wait_time > 0 else 0)
+
     except KeyboardInterrupt:
         pass
