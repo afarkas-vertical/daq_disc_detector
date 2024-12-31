@@ -43,7 +43,7 @@ if __name__ == "__main__":
 
     # calculate the length of a counter tick, which has fundamental period 20.83 ns
     counter_tick_exp = E.CounterTickSize.TICK20PT83ns
-    counter_tick = 20.83E-9
+    counter_tick = 2*20.83E-9
     # counter_tick_exp = E.CounterTickSize.TICK200ns
     # counter_tick = 200E-9
 
@@ -164,14 +164,13 @@ if __name__ == "__main__":
     try:
         loop_count = 0
         exp_start = time.time()
-        loop_time = 1 # (in seconds)
+        loop_time = 0.5 # (in seconds)
         while True:
             loop_count = loop_count + 1
             loop_start = time.time()
 
-            #[ul.c_clear(b,c) for b in boards for c in chans]
-
             data_list = [round(counter_tick*count/1E-6,1) for count in [ul.c_in_32(b,c) for b in boards for c in chans]]
+            [ul.c_clear(b,c) for b in boards for c in chans]
 
             df.loc[loop_count] = [pd.to_datetime(dt.datetime.now())] + [(time.time()-exp_start)*1000] + data_list
 

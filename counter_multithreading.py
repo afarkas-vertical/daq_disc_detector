@@ -96,7 +96,7 @@ def initialize_daqs():
 
     # calculate the length of a counter tick, which has fundamental period 20.83 ns
     counter_tick_exp = E.CounterTickSize.TICK20PT83ns
-    counter_tick = 20.83E-9*10**(int(counter_tick_exp.value))
+    counter_tick = 2*20.83E-9*10**(int(counter_tick_exp.value))
 
     # loop through discovered daqs and create them in the Universal Library
     # additionally configure all daqs as counters in pulse width mode
@@ -320,7 +320,7 @@ def scan_loop():
         # pythonic list comprehension
         data_list = [round(counter_tick*count/1E-6,1) for count in [ul.c_in_32(b,c) for b in boards for c in chans]]
         # clear counters for next loop
-        #[ul.c_clear(b,c) for b in boards for c in chans]
+        [ul.c_clear(b,c) for b in boards for c in chans]
 
         # use Threading for slow stuff
         with concurrent.futures.ThreadPoolExecutor() as executor:
